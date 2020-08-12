@@ -1,0 +1,198 @@
+---
+title: "Stats101A_Final Project_MLR"
+author: "Group11"
+date: "7/26/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,message=FALSE}
+library(car)
+library(gplots)
+library(alr3)
+library(readr)
+library(effects)
+stroke <- read.csv("stroke.csv", header=T)
+attach(stroke)
+```
+
+## Exploratory data analysis
+
+```{r}
+WASI<-as.numeric(WASI.Full.Scale...4.Percentile.Rank)
+Edu<-as.numeric(Volunteer.Highest.grade.completed.)
+BMI<-as.numeric(BMI)
+Race<-factor(Race)
+High.Cholesterol<-factor(High.Cholesterol)
+
+par(mfrow=c(2,2))
+hist(WASI) #y
+hist(Edu)
+hist(BMI)
+table(Race)
+table(High.Cholesterol)
+par(mfrow=c(2,2))
+plot(WASI~Edu,main="The scatterplot between WASI and Education")
+plot(WASI~BMI,main="The scatterplot between WASI and BMI")
+boxplot(WASI~Race,main="The boxplot between WASI and Race")
+boxplot(WASI~High.Cholesterol,main="The boxplot between WASI and High Cholesterol")
+
+summary(Subject.SES.Score) #1Q=40,mdeian=48,3Q=55
+SES<- factor(cut(Subject.SES.Score, c(14,42,52,75), c("Low", "Medium", "High")))
+table(SES)
+boxplot(WASI~SES,main="The boxplot between WASI and SES")
+```
+
+## Final model
+
+```{r}
+#final model
+m1<-lm(WASI~Race+Edu+SES+BMI*High.Cholesterol)
+summary(m1)
+
+```
+
+## Correlation matrix and vif
+
+```{r}
+cor(stroke[,c(9,19)], use = "complete.obs")
+m2<-lm(WASI~Race+Edu+High.Cholesterol+BMI+SES)
+vif(m2) #all less than 5
+
+```
+
+## Assumptions
+
+```{r,message=FALSE}
+#linearity already checked by scatterplot
+#variance constancy
+plot(m1,which=1)
+ncvTest(m1)
+
+#normality
+plot(m1,which=2)
+
+#influential points
+influencePlot(m1) #leverage cutoff=4/474=0.00844
+stroke_1<- stroke[-c(286,336,296),]
+attach(stroke_1)
+m3<-lm(WASI~Race+Edu+BMI*High.Cholesterol)
+summary(m3) #no difference made by bad leverage points
+detach(stroke_1)
+
+#mmp plots
+mmps(m1) #fit
+```
+
+## AIC
+```{r}
+#AIC
+m01<-lm(WASI~Race)
+summary(m01) #R_adj=0.143
+AIC(m01) #4402
+m02<-lm(WASI~Race+Edu)
+summary(m02) #R_adj=0.248
+AIC(m02) #4341
+m03<-lm(WASI~Race+Edu+BMI)
+summary(m03) #R_adj=0.251
+AIC(m03) #4339
+m04<-lm(WASI~Race+Edu+BMI+High.Cholesterol)
+summary(m04) #R_adj=0.265
+AIC(m04) #4332
+#which one should be chosen?
+m1<-lm(WASI~Race+Edu+BMI*High.Cholesterol)
+summary(m1) #R_adj=0.272
+AIC(m1) #4328
+m06<-lm(WASI~Race+Edu+Subject.SES.Score+BMI*High.Cholesterol)
+summary(m06) #R_adj=0.277, SES not significant
+AIC(m06) #4330
+
+```
+
+## Interaction plot
+```{r}
+plot(allEffects(m1))
+#For people who don't have high cholesterol, as BMI increases, WASI decrease
+#For people who have high cholesterol, as BMI increases, WASI also increase
+#Why fat people more intelligent?-involve SES score
+
+#Involve with SES(put more than 2 levels categorical variable here)
+summary(Subject.SES.Score) #1Q=40,mdeian=48,3Q=55
+SES<- factor(cut(Subject.SES.Score, c(14,42,52,75), c("Low", "Medium", "High")))
+table(SES)
+boxplot(WASI~SES,main="The boxplot between WASI and SES")
+m4<-lm(WASI~Race+Edu+BMI*SES)
+summary(m4)
+plot(allEffects(m4))
+#For people who have low SES, as BMI increases, WASI decrease
+#Low SES correpond to people who don't have high cholesterol
+boxplot(Subject.SES.Score~High.Cholesterol)
+tapply(Subject.SES.Score,High.Cholesterol,mean) #43.2 51.9
+
+```
+
+## Interpretation of other predictors
+```{r}
+#Interpretation of other predictors
+#RaceWHITE:20.926
+boxplot(Subject.SES.Score~Race) #low income leads to low Edu quality
+boxplot(Edu~Race)
+tapply(Edu,Race,mean) #14.4,15.7,2yr college vs 4yr college
+
+```
+
+## Should we use this one?
+```{r}
+m07<-lm(WASI~Race+Edu+SES+BMI*High.Cholesterol)
+summary(m07) #R_adj=0.277, SES not significant and make cholesterl insignif
+AIC(m07) #4317 vs AIC(m1)=4328
+BIC(m07) #4355 vs BIC(m1)=4357
+m08<-lm(WASI~Race+Edu+Subject.SES.Score+BMI*High.Cholesterol)
+summary(m08) #R_adj=0.271, SES not significant and make cholesterl insignif
+AIC(m08) #4330 vs AIC(m1)=4328
+BIC(m08) #4363 vs BIC(m1)=4357
+```
+
+## Cross Validation
+```{r}
+library(dplyr)
+training<-stroke %>% sample_n(.,length(stroke$Anonymized.ID)/2)
+testing<-stroke[!(stroke$Anonymized.ID %in% training$Anonymized.ID),]
+m6<-lm(WASI.Full.Scale...4.Percentile.Rank~Race+Volunteer.Highest.grade.completed.+BMI*High.Cholesterol,data=training)
+summary(m6)
+yhat <- m6 %>% predict(testing)
+cor(yhat,testing$WASI.Full.Scale...4.Percentile.Rank) #0.475
+plot(yhat,testing$WASI.Full.Scale...4.Percentile.Rank)
+detach(stroke)
+```
+
+
+## Change to binary outcome
+```{r}
+median_WASI <- median(WASI)
+WASI[WASI < median_WASI] <- 0
+WASI[WASI >= median_WASI] <- 1
+```
+
+
+## Logistic regression
+```{r}
+m_logistic1 <-glm(WASI~Race+Edu+BMI+High.Cholesterol)
+summary(m_logistic1)
+
+round(exp(cbind(Estimate=coef(m_logistic1),confint(m_logistic1))),4)
+
+```
+
+## Interpretations:
+
+Keeping all else constant, the odds of having an above median WASI score is 34.67% higher for those who are white
+
+Keeping all else constant, for each year of increase in education, the odds of having an above median WASI score is increased by 5.69%
+
+Keeping all else constant, for each point of increase in BMI, the odds of having an above median WASI score is decreased by 1.35%
+
+Keeping all else constant, the odds of having an above median WASI score is 10.9% higher for those who have high cholesterol
