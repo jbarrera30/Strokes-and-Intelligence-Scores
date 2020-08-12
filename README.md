@@ -1,0 +1,1 @@
+# Strokes-and-Intelligence-Scores
